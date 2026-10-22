@@ -46,7 +46,9 @@ The strongest evaluated configuration reaches **65.70%** overall.
 
 | Harness | Model | Model Type | Date | Overall | Mechanics | Depth | Visuals | Art |
 |---|---|---|---:|---:|---:|---:|---:|---:|
-| Claude Code | Opus 5 xhigh | Vision | 2026-07-24 | **68.44** | **76.75** | **63.31** | **68.04** | **70.11** |
+| Codex | GPT-6 Astra xhigh | Vision | 2026-09-03 | **75.86** | **84.99** | **68.74** | **77.83** | **78.07** |
+| Codex | GPT-6 Sol xhigh | Vision | 2026-09-22 | 69.00 | 81.43 | 63.83 | 71.54 | 67.69 |
+| Claude Code | Opus 5 xhigh | Vision | 2026-07-24 | 68.44 | 76.75 | 63.31 | 68.04 | 70.11 |
 | Claude Code | Fable 5 high | Vision | 2026-06-09 | 65.72 | 76.52 | 58.61 | 66.93 | 67.68 |
 | Codex | GPT-5.6-sol high | Vision | 2026-07-09 | 60.50 | 74.50 | 56.10 | 64.80 | 57.00 |
 | Kimi Code | Kimi-K3 | Vision | 2026-07-16 | 56.96 | 73.03 | 53.38 | 56.90 | 53.59 |
