@@ -26,6 +26,13 @@ dependencies = [
     "playwright>=1.50",
 ]
 
+[project.optional-dependencies]
+server = [
+    "fastapi>=0.115,<1",
+    "uvicorn>=0.30,<1",
+    "python-multipart>=0.0.9,<1",
+]
+
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
@@ -34,8 +41,8 @@ build-backend = "hatchling.build"
 packages = ["gamecraft_bench"]
 
 [tool.pytest.ini_options]
-testpaths = ["tasks"]
+testpaths = ["tasks", "tests"]
 addopts = "--import-mode=importlib"
-# Only collect files explicitly named test_outputs.py inside task dirs;
+# Only collect files explicitly named test_outputs.py in the selected roots;
 # avoids pytest scanning vendored Harbor task templates etc.
 python_files = ["test_outputs.py"]

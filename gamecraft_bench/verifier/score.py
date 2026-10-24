@@ -13,13 +13,14 @@ End-to-end pipeline for one task:
 4. For each demo, call ``judge.score(...)`` once with the full set
    of requirements. Failures are recorded and treated as score 0 for
    every requirement on that demo.
-5. Aggregate per-requirement = ``max`` over demos (best evidence wins).
+5. Aggregate each requirement over demos using its ``max`` or ``mean`` rule.
 6. Evaluate ``score_formula`` safely against the resulting variable
    dict and clamp to [0, 1].
 
 Returns a structured ``ScoreResult`` plus writes per-demo artifacts
-under ``output_dir`` (``replays/`` mp4s, ``frames/`` png samples,
-``judge_log.json`` audit trail, ``breakdown.json`` summary).
+under ``output_dir`` (``demos/`` mp4s and frames, ``judge_log.json``
+audit trail, and ``breakdown.json`` summary). ``score_evidence`` exposes
+steps 4-6 for servers that already have recordings.
 
 This module owns the orchestration; subprocess plumbing lives in
 ``replay.py`` and ``web_replay.py``, judge plumbing lives in ``judges/``.
@@ -65,7 +66,7 @@ class RequirementScore:
 @dataclasses.dataclass(frozen=True)
 class DemoArtifacts:
     demo_id: str
-    trace_path: Path
+    trace_path: Path | None
     mp4_path: Path
     frame_paths: list[Path]
     duration_seconds: float
@@ -104,14 +105,10 @@ def score_project(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     rubric = json.loads(rubric_path.read_text())
-    formula: str = rubric["score_formula"]
     build_spec: dict = rubric["build_check"]
-    requirements: list[dict] = rubric["requirements"]
-    build_id: str = build_spec.get("id", "BUILD")
     runtime = _runtime_config(rubric.get("runtime"), project_dir)
     runtime_type = runtime["type"]
 
-    # Resolve sampling caps: explicit kwarg > rubric value > built-in default.
     if max_demo_seconds is None:
         max_demo_seconds = float(rubric.get("max_demo_seconds", 20.0))
     if max_demos is None:
@@ -119,34 +116,12 @@ def score_project(
 
     judge = judge or get_judge()
     errors: list[str] = []
-
-    # 1. Build check.
     build_ok, build_log = _run_build_check(
         build_spec, output_dir, project_dir=project_dir, runtime=runtime,
     )
-
-    # Default per-requirement = 0; populated by judge if BUILD passes.
-    # Per-requirement `agg` controls how the demo scores are folded into a
-    # single aggregated value: "max" (default) for mechanic items where one
-    # good demo proves the feature works, "mean" for visual/style items
-    # where every demo is shared evidence and one slick demo shouldn't
-    # cover for ten ugly ones.
-    req_scores: dict[str, RequirementScore] = {
-        r["id"]: RequirementScore(
-            requirement_id=r["id"],
-            description=r["description"],
-            per_demo={},
-            aggregated=0.0,
-            agg=_validate_agg(r),
-        )
-        for r in requirements
-    }
-
     demo_artifacts: list[DemoArtifacts] = []
-    judge_log: list[dict] = []
 
     if build_ok:
-        # 2. Replay each demo trace.
         traces = _list_traces(project_dir)
         if not traces:
             errors.append(
@@ -193,7 +168,6 @@ def score_project(
                 max_window_seconds=max_demo_seconds,
                 seed=demo_id,
             )
-
             demo_artifacts.append(DemoArtifacts(
                 demo_id=demo_id,
                 trace_path=trace_path,
@@ -202,11 +176,54 @@ def score_project(
                 duration_seconds=rr.duration_seconds,
             ))
 
-        # 3. Score each demo: one batched judge call returns scores for
-        #    every requirement at once.
+    return score_evidence(
+        rubric_path=rubric_path,
+        output_dir=output_dir,
+        demos=demo_artifacts,
+        build_ok=build_ok,
+        build_log=build_log,
+        judge=judge,
+        initial_errors=errors,
+    )
+
+
+def score_evidence(
+    *,
+    rubric_path: Path,
+    output_dir: Path,
+    demos: list[DemoArtifacts],
+    build_ok: bool,
+    build_log: str = "",
+    judge: MultimodalJudge | None = None,
+    initial_errors: list[str] | None = None,
+) -> ScoreResult:
+    """Score existing recordings without running a build or replay."""
+    rubric_path = Path(rubric_path).resolve()
+    output_dir = Path(output_dir).resolve()
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    rubric = json.loads(rubric_path.read_text())
+    formula: str = rubric["score_formula"]
+    requirements: list[dict] = rubric["requirements"]
+    build_id: str = rubric["build_check"].get("id", "BUILD")
+    judge = judge or get_judge()
+    errors = list(initial_errors or [])
+    req_scores: dict[str, RequirementScore] = {
+        r["id"]: RequirementScore(
+            requirement_id=r["id"],
+            description=r["description"],
+            per_demo={},
+            aggregated=0.0,
+            agg=_validate_agg(r),
+        )
+        for r in requirements
+    }
+    judge_log: list[dict] = []
+
+    if build_ok:
         req_specs = [RequirementSpec(id=r["id"], description=r["description"])
                      for r in requirements]
-        for art in demo_artifacts:
+        for art in demos:
             req = JudgeRequest(
                 demo_id=art.demo_id,
                 video_path=art.mp4_path,
@@ -249,7 +266,6 @@ def score_project(
                             f"{art.demo_id}/{rid}: {raw_score!r}"
                         )
                 score = max(0.0, min(1.0, score))
-
                 judge_log.append({
                     "demo_id": art.demo_id,
                     "requirement_id": rid,
@@ -267,13 +283,12 @@ def score_project(
                     aggregated=_aggregate(cur.agg, new_per_demo),
                 )
 
-    # 4. Evaluate the score formula.
     variables: dict[str, float] = {build_id: 1.0 if build_ok else 0.0}
     for rid, rs in req_scores.items():
         variables[rid] = rs.aggregated
     try:
         reward = _safe_eval_formula(formula, variables)
-    except FormulaError as e:
+    except (FormulaError, ArithmeticError, ValueError) as e:
         errors.append(f"score_formula evaluation failed: {e}")
         reward = 0.0
     reward = max(0.0, min(1.0, reward))
@@ -284,12 +299,11 @@ def score_project(
         build_log=build_log,
         formula=formula,
         requirements=list(req_scores.values()),
-        demos=demo_artifacts,
+        demos=demos,
         judge_name=type(judge).__name__,
         judge_model=judge.model,
         errors=errors,
     )
-
     _write_artifacts(output_dir, result, judge_log, variables)
     return result
 
@@ -497,7 +511,7 @@ def _write_artifacts(
         "demos": [
             {
                 "demo_id": d.demo_id,
-                "trace": str(d.trace_path),
+                "trace": str(d.trace_path) if d.trace_path is not None else None,
                 "mp4": str(d.mp4_path),
                 "duration_seconds": d.duration_seconds,
                 "frames": [str(p) for p in d.frame_paths],
@@ -546,7 +560,10 @@ def _safe_eval_formula(formula: str, variables: dict[str, float]) -> float:
         tree = ast.parse(formula, mode="eval")
     except SyntaxError as e:
         raise FormulaError(f"could not parse formula: {e}") from e
-    return float(_eval_node(tree.body, variables))
+    value = float(_eval_node(tree.body, variables))
+    if not math.isfinite(value):
+        raise FormulaError("score_formula produced a non-finite result")
+    return value
 
 
 def _eval_node(node: ast.AST, variables: dict[str, float]) -> float:
@@ -577,5 +594,6 @@ __all__ = [
     "FormulaError",
     "RequirementScore",
     "ScoreResult",
+    "score_evidence",
     "score_project",
 ]
