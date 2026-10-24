@@ -114,7 +114,7 @@ class OpenAIJudge(MultimodalJudge):
             {"type": "text",
              "text": (
                  f"The next {len(frames)} images are PNG frames sampled in "
-                 "temporal order from one playthrough of a Godot 2D game."
+                 "temporal order from one playthrough of a 2D game."
              )},
         ]
         for idx, fp in enumerate(frames, start=1):

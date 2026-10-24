@@ -1,0 +1,8 @@
+{
+  "duration_frames": 150,
+  "events": [
+    {"frame": 30, "type": "mouse_click", "button": "left", "x": 640, "y": 442},
+    {"frame": 50, "type": "key_down", "keycode": "RIGHT"},
+    {"frame": 110, "type": "key_up", "keycode": "RIGHT"}
+  ]
+}

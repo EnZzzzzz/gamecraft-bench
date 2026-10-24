@@ -1,0 +1,11 @@
+{
+  "scenario": "playground",
+  "duration_frames": 150,
+  "events": [
+    {"frame": 30, "type": "key_down", "keycode": "D"},
+    {"frame": 105, "type": "key_up", "keycode": "D"},
+    {"frame": 110, "type": "key_down", "keycode": "UP"},
+    {"frame": 125, "type": "key_up", "keycode": "UP"},
+    {"frame": 140, "type": "wait"}
+  ]
+}

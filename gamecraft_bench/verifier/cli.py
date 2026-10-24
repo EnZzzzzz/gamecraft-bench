@@ -39,7 +39,7 @@ def main(argv: list[str] | None = None) -> int:
         description="Replay demo traces and score the recordings against a rubric.",
     )
     parser.add_argument("--project", type=Path, required=True,
-                        help="Path to the Godot project directory.")
+                        help="Path to the Godot or Web project directory.")
     parser.add_argument("--rubric", type=Path, required=True,
                         help="Path to the rubric JSON file.")
     parser.add_argument("--output", type=Path, required=True,
@@ -82,6 +82,8 @@ def main(argv: list[str] | None = None) -> int:
     print(f"[verifier] judge     = {type(judge).__name__}(model={judge.model!r})",
           flush=True)
     print(f"[verifier] godot_bin = {cfg.GODOT_BIN}", flush=True)
+    print(f"[verifier] chromium_bin = {cfg.CHROMIUM_BIN or 'Playwright default'}",
+          flush=True)
 
     result = score_project(
         project_dir=args.project,

@@ -22,7 +22,6 @@ godot are all subprocesses). It does not try to talk X11 directly.
 from __future__ import annotations
 
 import contextlib
-import dataclasses
 import fcntl
 import json
 import os
@@ -34,6 +33,7 @@ import time
 from pathlib import Path
 
 from .. import config as cfg
+from .replay_common import ReplayError, ReplayResult
 
 _DEFAULT_GODOT_WINDOW_TIMEOUT_SECONDS = 45.0
 
@@ -57,17 +57,6 @@ _KEYCODES: dict[str, str] = {
     **{c: c.lower() for c in "ABCDEFGHIJKLMNOPQRSTUVWXYZ"},
     **{str(d): str(d) for d in range(10)},
 }
-
-
-class ReplayError(RuntimeError):
-    """Raised when the replay pipeline fails to start, run, or finish."""
-
-
-@dataclasses.dataclass(frozen=True)
-class ReplayResult:
-    output_mp4: Path
-    duration_seconds: float
-    godot_returncode: int
 
 
 def replay_trace(
@@ -278,7 +267,7 @@ def replay_trace(
             # not wall-clock slippage from Godot startup, xdotool, or encoder
             # stalls on a loaded host.
             duration_seconds=trace_seconds,
-            godot_returncode=godot_rc,
+            runtime_returncode=godot_rc,
         )
 
     finally:

@@ -23,7 +23,7 @@ from .base import RequirementSpec
 
 SYSTEM_INSTRUCTION = (
     "You are a strict but fair video-game evaluator. Given a short "
-    "playthrough recording of a Godot 2D game, decide how clearly each "
+    "playthrough recording of a 2D game, decide how clearly each "
     "listed requirement is demonstrated. Score every requirement on a "
     "0.0 to 1.0 scale where 0.0 = not demonstrated at all (or contradicted), "
     "0.5 = partially demonstrated / ambiguous, and 1.0 = clearly and "

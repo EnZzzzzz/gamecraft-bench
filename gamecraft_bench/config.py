@@ -44,6 +44,10 @@ def _path_from_env(name: str, default: Path | None) -> Path | None:
 # when this is None or unresolvable.
 GODOT_BIN: str | None = _env("GAMECRAFT_BENCH_GODOT_BIN") or shutil.which("godot")
 
+# Optional Chromium executable for the Playwright Web replay backend. When
+# unset, Playwright uses its own installed Chromium.
+CHROMIUM_BIN: str | None = _env("GAMECRAFT_BENCH_CHROMIUM_BIN")
+
 # Where LocalSubprocessEnvironment puts per-session sandbox dirs. Each trial
 # gets its own subdir (named after the session id). Cleaned up on stop().
 # When None, the env class places the runtime sandbox under /tmp while
@@ -167,6 +171,8 @@ def env_for_subprocess() -> dict[str, str]:
     }
     if GODOT_BIN:
         e["GAMECRAFT_BENCH_GODOT_BIN"] = GODOT_BIN
+    if CHROMIUM_BIN:
+        e["GAMECRAFT_BENCH_CHROMIUM_BIN"] = CHROMIUM_BIN
     if PYTEST_BIN:
         e["GAMECRAFT_BENCH_PYTEST_BIN"] = PYTEST_BIN
     # Forward the verifier judge selection so the test script in the

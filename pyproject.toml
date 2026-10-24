@@ -23,6 +23,7 @@ dependencies = [
     "anthropic>=0.40.0",
     "openai>=1.55.0",
     "google-genai>=0.3.0",
+    "playwright>=1.50",
 ]
 
 [build-system]
@@ -34,6 +35,7 @@ packages = ["gamecraft_bench"]
 
 [tool.pytest.ini_options]
 testpaths = ["tasks"]
+addopts = "--import-mode=importlib"
 # Only collect files explicitly named test_outputs.py inside task dirs;
 # avoids pytest scanning vendored Harbor task templates etc.
 python_files = ["test_outputs.py"]

@@ -80,9 +80,10 @@ For the model runs listed below, we report token usage rather than dollar cost b
 
 ## Evaluation protocol
 
-Each task provides a natural-language game specification, a Godot-based workspace, shared resources, and a hidden rubric.
-A valid submission includes a Godot project under `/workspace/game` and replayable input traces under `/workspace/game/demo_outputs/`.
+Each task provides a natural-language game specification, a runtime workspace, shared resources, and a hidden rubric.
+A valid submission includes a Godot or Web project under `/workspace/game` and replayable input traces under `/workspace/game/demo_outputs/`.
 The verifier checks launchability, replays the submitted traces, records gameplay evidence, and applies the hidden rubric to the observed behavior.
+Tasks without a `runtime` entry use Godot for backward compatibility. Web tasks use a local service and headed Chromium driven by Playwright; both runtimes produce MP4 evidence through the same Xvfb + ffmpeg pipeline and share the judges and score aggregation.
 
 ## Install
 
@@ -132,7 +133,11 @@ git clone <this-repo> game-bench && cd game-bench
 uv venv --python 3.12 .venv
 source .venv/bin/activate
 uv pip install -e .          # add --index-url https://pypi.tuna.tsinghua.edu.cn/simple if needed
+playwright install --with-deps chromium  # required only for Web runtime tasks
 ```
+
+Set `GAMECRAFT_BENCH_CHROMIUM_BIN` only when using a custom Chromium executable;
+otherwise the backend uses Playwright's installed Chromium.
 
 ### 4. Local config
 
@@ -219,9 +224,47 @@ Architecture: a session pool of up to 8 X displays (`:300`–`:307`, disjoint fr
 
 Task assets / starter scaffold go under `tasks/<task>/workspace/`; contents are copied into the agent's `/workspace/` at env start.
 
+### Web runtime tasks
+
+Web tasks opt in through `rubric.json`; existing tasks need no changes:
+
+```json
+{
+  "runtime": {
+    "type": "web",
+    "cwd": "{project_dir}",
+    "start_cmd": "python3 -m http.server {port} --bind 127.0.0.1 --directory {project_dir}",
+    "base_url": "http://127.0.0.1:{port}",
+    "ready_expression": "window.__GAME_READY__ === true",
+    "startup_timeout_seconds": 30
+  },
+  "build_check": {
+    "id": "BUILD",
+    "type": "web_smoke",
+    "timeout_seconds": 45
+  }
+}
+```
+
+`{port}` is replaced with a fresh loopback port for every build check and demo.
+`{project_dir}` is replaced with the CLI's resolved `--project` path. The server
+must bind to loopback and the game must be self-contained: replay blocks external
+HTTP(S) requests and starts a fresh server and browser profile for every trace.
+
+The game must set `window.__GAME_READY__ = true` only after its assets and initial
+state are ready. A trace's optional `scenario` is passed as `?scenario=<id>`;
+scenario loading and RNG seeding remain the game's responsibility. Input events
+use the same JSON format as Godot tasks and are dispatched through Playwright's
+mouse and keyboard APIs at viewport coordinates. The supported viewport is
+1280x720 at device scale factor 1.
+
+See `tasks/web-canvas-smoke/` for a dependency-free oracle task. While developing
+a Web game, `tools/screenshot_web.sh --url http://127.0.0.1:8000 --out frame.png`
+captures the ready screen; `--scenario` and `--frames` are also supported.
+
 ## Scope
 
-GameCraft-Bench focuses on 2D game generation in Godot.
+GameCraft-Bench focuses on 2D game generation in Godot and Web runtimes.
 This makes the benchmark lightweight and reproducible for headless evaluation, but it does not cover Unity, Unreal, 3D games, multiplayer systems, large-scale physics, or long-form production workflows.
 The verifier scores visual gameplay evidence; audio-dependent aspects are represented through visible game behavior rather than direct audio evaluation.
 

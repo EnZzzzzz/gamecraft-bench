@@ -1,15 +1,15 @@
-"""Score a Godot project against a rubric.
+"""Score a Godot or Web project against a rubric.
 
 End-to-end pipeline for one task:
 
 1. Read ``rubric.json``: ``score_formula``, ``build_check``,
-   ``categories``, ``requirements``.
-2. Run ``build_check.cmd``. ``BUILD = 1`` if it exits 0, else 0.
-   When ``BUILD`` is 0 we skip steps 3-5 — the formula multiplies by
-   it anyway, the final reward is 0, and we save the work.
-3. For each ``demo_outputs/*.json`` trace, replay it with
-   ``replay_trace`` to produce an mp4. Sample frames at a fixed
-   cadence so the judge has both video + still frames.
+   ``categories``, ``requirements`` and optional ``runtime``.
+2. Run the configured build or launch smoke check. ``BUILD = 1`` if it
+   succeeds, else 0. When ``BUILD`` is 0 we skip steps 3-5 — the formula
+   multiplies by it anyway, the final reward is 0, and we save the work.
+3. For each ``demo_outputs/*.json`` trace, replay it with the selected
+   runtime to produce an mp4. Sample frames at a fixed cadence so the
+   judge has both video + still frames.
 4. For each demo, call ``judge.score(...)`` once with the full set
    of requirements. Failures are recorded and treated as score 0 for
    every requirement on that demo.
@@ -22,8 +22,8 @@ under ``output_dir`` (``replays/`` mp4s, ``frames/`` png samples,
 ``judge_log.json`` audit trail, ``breakdown.json`` summary).
 
 This module owns the orchestration; subprocess plumbing lives in
-``replay.py``, judge plumbing lives in ``judges/``. CLI / Harbor wiring
-lives in ``cli.py``.
+``replay.py`` and ``web_replay.py``, judge plumbing lives in ``judges/``.
+CLI / Harbor wiring lives in ``cli.py``.
 """
 
 from __future__ import annotations
@@ -34,6 +34,7 @@ import json
 import math
 import operator
 import random
+import shlex
 import shutil
 import subprocess
 import time
@@ -41,7 +42,8 @@ from pathlib import Path
 
 from .judges import JudgeError, MultimodalJudge, get_judge
 from .judges.base import JudgeRequest, RequirementSpec
-from .replay import ReplayError, replay_trace
+from .replay import replay_trace
+from .replay_common import ReplayError
 
 _JUDGE_MAX_ATTEMPTS = 5
 
@@ -95,7 +97,7 @@ def score_project(
     max_demo_seconds: float | None = None,
     max_demos: int | None = None,
 ) -> ScoreResult:
-    """Score one Godot project. See module docstring for the pipeline."""
+    """Score one Godot or Web project. See module docstring for the pipeline."""
     project_dir = Path(project_dir).resolve()
     rubric_path = Path(rubric_path).resolve()
     output_dir = Path(output_dir).resolve()
@@ -106,6 +108,8 @@ def score_project(
     build_spec: dict = rubric["build_check"]
     requirements: list[dict] = rubric["requirements"]
     build_id: str = build_spec.get("id", "BUILD")
+    runtime = _runtime_config(rubric.get("runtime"), project_dir)
+    runtime_type = runtime["type"]
 
     # Resolve sampling caps: explicit kwarg > rubric value > built-in default.
     if max_demo_seconds is None:
@@ -117,7 +121,9 @@ def score_project(
     errors: list[str] = []
 
     # 1. Build check.
-    build_ok, build_log = _run_build_check(build_spec, output_dir)
+    build_ok, build_log = _run_build_check(
+        build_spec, output_dir, project_dir=project_dir, runtime=runtime,
+    )
 
     # Default per-requirement = 0; populated by judge if BUILD passes.
     # Per-requirement `agg` controls how the demo scores are folded into a
@@ -161,16 +167,21 @@ def score_project(
             mp4_path = demo_dir / f"{demo_id}.mp4"
             log_dir = demo_dir / "logs"
             try:
-                rr = replay_trace(
-                    project_dir=project_dir,
-                    trace_path=trace_path,
-                    output_mp4=mp4_path,
-                    viewport=viewport,
-                    record_size=record_size,
-                    fps=fps,
-                    log_dir=log_dir,
-                )
-            except ReplayError as e:
+                replay_kwargs = {
+                    "project_dir": project_dir,
+                    "trace_path": trace_path,
+                    "output_mp4": mp4_path,
+                    "viewport": viewport,
+                    "record_size": record_size,
+                    "fps": fps,
+                    "log_dir": log_dir,
+                }
+                if runtime_type == "web":
+                    from .web_replay import replay_web_trace
+                    rr = replay_web_trace(**replay_kwargs, runtime=runtime)
+                else:
+                    rr = replay_trace(**replay_kwargs)
+            except (ReplayError, ImportError) as e:
                 errors.append(f"replay failed for {demo_id}: {e}")
                 continue
 
@@ -317,11 +328,70 @@ def _aggregate(agg: str, per_demo: dict[str, float]) -> float:
     return max(vals)
 
 
-def _run_build_check(spec: dict, output_dir: Path) -> tuple[bool, str]:
-    """Run the build smoke command in a shell. Captures combined output."""
+def _runtime_config(value: dict | None, project_dir: Path) -> dict:
+    if value is None:
+        return {"type": "godot"}
+    if not isinstance(value, dict):
+        raise ValueError("runtime must be an object")
+    runtime = dict(value)
+    runtime_type = str(runtime.get("type", "godot")).strip().lower()
+    if runtime_type not in ("godot", "web"):
+        raise ValueError(f"unsupported runtime type: {runtime_type!r}")
+    runtime["type"] = runtime_type
+    if runtime_type == "web":
+        runtime["cwd"] = str(runtime.get("cwd") or project_dir)
+        for key in ("cwd", "base_url"):
+            if key in runtime:
+                runtime[key] = str(runtime[key]).replace(
+                    "{project_dir}", str(project_dir)
+                )
+        if "start_cmd" in runtime:
+            runtime["start_cmd"] = str(runtime["start_cmd"]).replace(
+                "{project_dir}", shlex.quote(str(project_dir))
+            )
+    return runtime
+
+
+def _run_build_check(
+    spec: dict,
+    output_dir: Path,
+    *,
+    project_dir: Path,
+    runtime: dict,
+) -> tuple[bool, str]:
+    log_path = output_dir / "build.log"
+    if spec.get("type") == "web_smoke":
+        if runtime["type"] != "web":
+            msg = "web_smoke build_check requires runtime.type=web"
+            log_path.write_text(msg)
+            return False, msg
+        smoke_dir = output_dir / "build_smoke"
+        smoke_dir.mkdir(parents=True, exist_ok=True)
+        trace_path = smoke_dir / "trace.json"
+        trace_path.write_text(json.dumps({"duration_frames": 1, "events": []}))
+        try:
+            from .web_replay import replay_web_trace
+            timeout = float(spec.get("timeout_seconds", 60))
+            result = replay_web_trace(
+                project_dir=project_dir,
+                trace_path=trace_path,
+                output_mp4=smoke_dir / "smoke.mp4",
+                runtime=runtime,
+                record_size=None,
+                log_dir=smoke_dir / "logs",
+                max_replay_seconds=timeout,
+                max_total_seconds=timeout,
+            )
+            msg = f"web smoke passed: {result.output_mp4}"
+            log_path.write_text(msg)
+            return True, msg
+        except (ReplayError, OSError, ImportError) as e:
+            msg = f"web smoke failed: {e}"
+            log_path.write_text(msg)
+            return False, msg
+
     cmd = spec["cmd"]
     timeout = float(spec.get("timeout_seconds", 60))
-    log_path = output_dir / "build.log"
     try:
         proc = subprocess.run(
             cmd, shell=True, capture_output=True, text=True, timeout=timeout,

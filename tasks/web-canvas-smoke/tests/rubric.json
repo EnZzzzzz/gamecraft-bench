@@ -1,0 +1,50 @@
+{
+  "runtime": {
+    "type": "web",
+    "cwd": "{project_dir}",
+    "start_cmd": "python3 -m http.server {port} --bind 127.0.0.1 --directory {project_dir}",
+    "base_url": "http://127.0.0.1:{port}",
+    "ready_expression": "window.__GAME_READY__ === true",
+    "startup_timeout_seconds": 30
+  },
+  "score_formula": "BUILD * (0.25*V1 + 0.35*M1 + 0.25*M2 + 0.15*V2)",
+  "max_demos": 10,
+  "max_demo_seconds": 20,
+  "build_check": {
+    "id": "BUILD",
+    "type": "web_smoke",
+    "timeout_seconds": 45
+  },
+  "categories": [
+    {
+      "name": "Interaction",
+      "items": ["M1", "M2"]
+    },
+    {
+      "name": "Visible presentation",
+      "items": ["V1", "V2"]
+    }
+  ],
+  "requirements": [
+    {
+      "id": "V1",
+      "agg": "max",
+      "description": "A normal launch shows a polished title screen for Canvas Courier with a clearly labeled Start button and keyboard instructions. Clicking Start visibly enters the playable arena. Score 0 if the game bypasses the title screen on a normal launch or has no functional Start control."
+    },
+    {
+      "id": "M1",
+      "agg": "max",
+      "description": "The player character visibly moves through the arena in response to held keyboard input. Arrow keys and A/D controls are supported, and key release stops movement. Score 0 if movement is automatic, prerecorded, or not controlled by the keyboard."
+    },
+    {
+      "id": "M2",
+      "agg": "max",
+      "description": "The arena contains visible glowing light-shard collectibles. Moving the player into a shard removes it and increases the visible collected counter; the playground demo visibly collects at least one shard. Score 0 if collectibles or the counter do not respond to actual player movement."
+    },
+    {
+      "id": "V2",
+      "agg": "max",
+      "description": "At 1280x720, the game has a clear high-contrast visual hierarchy, a distinct player and collectibles, a readable gameplay status and collection counter, and no scrollbars or clipped primary UI. Both title and gameplay look intentionally styled rather than like a blank technical test."
+    }
+  ]
+}
