@@ -180,6 +180,7 @@ def replay_web_trace(
                 "--no-first-run",
                 "--no-default-browser-check",
                 "--no-sandbox",
+                "--ozone-platform=x11",
                 "--disable-background-timer-throttling",
                 "--disable-backgrounding-occluded-windows",
                 "--disable-renderer-backgrounding",
@@ -250,7 +251,11 @@ def replay_web_trace(
             "dpr: window.devicePixelRatio})"
         )
         expected = {"width": viewport[0], "height": viewport[1], "dpr": 1}
-        if dimensions != expected:
+        if (
+            dimensions["width"] != expected["width"]
+            or dimensions["height"] != expected["height"]
+            or not math.isclose(dimensions["dpr"], expected["dpr"], abs_tol=1e-6)
+        ):
             raise ReplayError(
                 f"Chromium viewport mismatch: expected {expected}, got {dimensions}{log_hint}"
             )
